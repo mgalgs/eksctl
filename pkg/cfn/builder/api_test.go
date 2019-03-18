@@ -342,8 +342,8 @@ var _ = Describe("CloudFormation template builder API", func() {
 		})
 
 		It("should have public and private subnets", func() {
-			Expect(len(cfg.VPC.Subnets.Private)).To(Equal(3))
-			Expect(len(cfg.VPC.Subnets.Public)).To(Equal(3))
+			Expect(cfg.VPC.Subnets.Private).To(HaveLen(3))
+			Expect(cfg.VPC.Subnets.Public).To(HaveLen(3))
 		})
 
 		rs := NewClusterResourceSet(p, cfg)
@@ -381,993 +381,989 @@ var _ = Describe("CloudFormation template builder API", func() {
 		})
 	})
 
-	Describe("AutoNameTag", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
+	Describe("test various configs", func() {
 
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+		var (
+			c   *cloudconfig.CloudConfig
+			rs  *NodeGroupResourceSet
+			obj *Template
+			err error
+		)
 
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-			t := rs.Template()
-			Expect(t.Resources).ToNot(BeEmpty())
-			Expect(len(t.Resources)).To(Equal(totalNodeResources))
-			templateBody, err := t.JSON()
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(templateBody).ShouldNot(BeEmpty())
+		Context("AutoNameTag", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+
+				t := rs.Template()
+				Expect(t.Resources).ToNot(BeEmpty())
+				Expect(t.Resources).To(HaveLen(totalNodeResources))
+				templateBody, err := t.JSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				Expect(templateBody).ShouldNot(BeEmpty())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("SG should have correct tags", func() {
+				Expect(obj.Resources).ToNot(BeNil())
+				Expect(obj.Resources).To(HaveLen(totalNodeResources))
+				Expect(obj.Resources["SG"].Properties.Tags).To(HaveLen(2))
+				Expect(obj.Resources["SG"].Properties.Tags[0].Key).To(Equal("kubernetes.io/cluster/" + clusterName))
+				Expect(obj.Resources["SG"].Properties.Tags[0].Value).To(Equal("owned"))
+				Expect(obj.Resources["SG"].Properties.Tags[1].Key).To(Equal("Name"))
+				Expect(obj.Resources["SG"].Properties.Tags[1].Value).To(Equal(map[string]interface{}{
+					"Fn::Sub": "${AWS::StackName}/SG",
+				}))
+			})
 		})
 
-		templateBody, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(templateBody).ShouldNot(BeEmpty())
-		})
-		obj := Template{}
-		It("should parse JSON without errors", func() {
-			err := json.Unmarshal(templateBody, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
+		Context("NodeGroupTags", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
 
-		It("SG should have correct tags", func() {
-			Expect(obj.Resources).ToNot(BeNil())
-			Expect(len(obj.Resources)).To(Equal(totalNodeResources))
-			Expect(len(obj.Resources["SG"].Properties.Tags)).To(Equal(2))
-			Expect(obj.Resources["SG"].Properties.Tags[0].Key).To(Equal("kubernetes.io/cluster/" + clusterName))
-			Expect(obj.Resources["SG"].Properties.Tags[0].Value).To(Equal("owned"))
-			Expect(obj.Resources["SG"].Properties.Tags[1].Key).To(Equal("Name"))
-			Expect(obj.Resources["SG"].Properties.Tags[1].Value).To(Equal(map[string]interface{}{
-				"Fn::Sub": "${AWS::StackName}/SG",
-			}))
-		})
-	})
+			ng.InstanceType = "t2.medium"
+			ng.Name = "ng-abcd1234"
 
-	Describe("NodeGroupTags", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
 
-		ng.InstanceType = "t2.medium"
-		ng.Name = "ng-abcd1234"
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
 
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
+			It("should have correct tags", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+				Expect(obj.Resources["NodeGroup"].Properties.Tags).To(HaveLen(2))
+				Expect(obj.Resources["NodeGroup"].Properties.Tags[0].Key).To(Equal("Name"))
+				Expect(obj.Resources["NodeGroup"].Properties.Tags[0].Value).To(Equal(clusterName + "-ng-abcd1234-Node"))
+				Expect(obj.Resources["NodeGroup"].Properties.Tags[0].PropagateAtLaunch).To(Equal("true"))
+				Expect(obj.Resources["NodeGroup"].Properties.Tags[1].Key).To(Equal("kubernetes.io/cluster/" + clusterName))
+				Expect(obj.Resources["NodeGroup"].Properties.Tags[1].Value).To(Equal("owned"))
+				Expect(obj.Resources["NodeGroup"].Properties.Tags[1].PropagateAtLaunch).To(Equal("true"))
+			})
 		})
 
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors", func() {
-			err := json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
+		Context("NodeGroupAutoScaling", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
+
+			ng.IAM.WithAddonPolicies.AutoScaler = api.NewBoolTrue()
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have correct policies", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+				Expect(obj.Resources["PolicyAutoScaling"]).ToNot(BeNil())
+				Expect(obj.Resources["PolicyAutoScaling"].Properties.PolicyDocument.Statement).To(HaveLen(1))
+				Expect(obj.Resources["PolicyAutoScaling"].Properties.PolicyDocument.Statement[0].Effect).To(Equal("Allow"))
+				Expect(obj.Resources["PolicyAutoScaling"].Properties.PolicyDocument.Statement[0].Resource).To(Equal("*"))
+				Expect(obj.Resources["PolicyAutoScaling"].Properties.PolicyDocument.Statement[0].Action).To(Equal([]string{
+					"autoscaling:DescribeAutoScalingGroups",
+					"autoscaling:DescribeAutoScalingInstances",
+					"autoscaling:DescribeLaunchConfigurations",
+					"autoscaling:DescribeTags",
+					"autoscaling:SetDesiredCapacity",
+					"autoscaling:TerminateInstanceInAutoScalingGroup",
+				}))
+			})
+
+			It("should have auto-discovery tags", func() {
+				expectedTags := []Tag{
+					{
+						Key:               "Name",
+						Value:             fmt.Sprintf("%s-%s-Node", clusterName, "ng-abcd1234"),
+						PropagateAtLaunch: "true",
+					},
+					{
+						Key:               "kubernetes.io/cluster/" + clusterName,
+						Value:             "owned",
+						PropagateAtLaunch: "true",
+					},
+					{
+						Key:               "k8s.io/cluster-autoscaler/enabled",
+						Value:             "true",
+						PropagateAtLaunch: "true",
+					},
+					{
+						Key:               "k8s.io/cluster-autoscaler/" + clusterName,
+						Value:             "owned",
+						PropagateAtLaunch: "true",
+					},
+				}
+
+				Expect(obj.Resources).To(HaveKey("NodeGroup"))
+				ng := obj.Resources["NodeGroup"]
+				Expect(ng).ToNot(BeNil())
+				Expect(ng.Properties).ToNot(BeNil())
+				Expect(ng.Properties.Tags).ToNot(BeNil())
+				Expect(ng.Properties.Tags).To(Equal(expectedTags))
+			})
 		})
 
-		It("should have correct tags", func() {
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-			Expect(len(obj.Resources["NodeGroup"].Properties.Tags)).To(Equal(2))
-			Expect(obj.Resources["NodeGroup"].Properties.Tags[0].Key).To(Equal("Name"))
-			Expect(obj.Resources["NodeGroup"].Properties.Tags[0].Value).To(Equal(clusterName + "-ng-abcd1234-Node"))
-			Expect(obj.Resources["NodeGroup"].Properties.Tags[0].PropagateAtLaunch).To(Equal("true"))
-			Expect(obj.Resources["NodeGroup"].Properties.Tags[1].Key).To(Equal("kubernetes.io/cluster/" + clusterName))
-			Expect(obj.Resources["NodeGroup"].Properties.Tags[1].Value).To(Equal("owned"))
-			Expect(obj.Resources["NodeGroup"].Properties.Tags[1].PropagateAtLaunch).To(Equal("true"))
+		Context("NodeGroup{PrivateNetworking=true AllowSSH=true}", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
+
+			ng.AllowSSH = true
+			ng.InstanceType = "t2.medium"
+			ng.PrivateNetworking = true
+			ng.AMIFamily = "AmazonLinux2"
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-private-ng", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have correct description", func() {
+				Expect(obj.Description).To(ContainSubstring("AMI family: AmazonLinux2"))
+				Expect(obj.Description).To(ContainSubstring("SSH access: true"))
+				Expect(obj.Description).To(ContainSubstring("private networking: true"))
+			})
+
+			It("should have correct resources and attributes", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				Expect(obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier).To(Not(BeNil()))
+				x, ok := obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier.(map[string]interface{})
+				Expect(ok).To(BeTrue())
+				Expect(x).To(HaveLen(1))
+				refSubnets := map[string]interface{}{
+					"Fn::Split": []interface{}{
+						",",
+						map[string]interface{}{
+							"Fn::ImportValue": "eksctl-test-private-ng::SubnetsPrivate",
+						},
+					},
+				}
+				Expect(x).To(Equal(refSubnets))
+
+				Expect(obj.Resources["NodeLaunchConfig"].Properties.AssociatePublicIpAddress).To(BeFalse())
+
+				Expect(obj.Resources["SSHIPv4"].Properties.CidrIp).To(Equal("192.168.0.0/16"))
+				Expect(obj.Resources["SSHIPv4"].Properties.FromPort).To(Equal(22))
+				Expect(obj.Resources["SSHIPv4"].Properties.ToPort).To(Equal(22))
+
+				Expect(obj.Resources).To(Not(HaveKey("SSHIPv6")))
+			})
 		})
-	})
 
-	Describe("NodeGroupAutoScaling", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
+		Context("NodeGroup{PrivateNetworking=false AllowSSH=true}", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
 
-		ng.IAM.WithAddonPolicies.AutoScaler = api.NewBoolTrue()
+			ng.AllowSSH = true
+			ng.InstanceType = "t2.medium"
+			ng.PrivateNetworking = false
+			ng.AMIFamily = "AmazonLinux2"
 
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-public-ng", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have correct description", func() {
+				Expect(obj.Description).To(ContainSubstring("AMI family: AmazonLinux2"))
+				Expect(obj.Description).To(ContainSubstring("SSH access: true"))
+				Expect(obj.Description).To(ContainSubstring("private networking: false"))
+			})
+
+			It("should have correct resources and attributes", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				Expect(obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier).To(Not(BeNil()))
+				x, ok := obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier.(map[string]interface{})
+				Expect(ok).To(BeTrue())
+				Expect(x).To(HaveLen(1))
+				refSubnets := map[string]interface{}{
+					"Fn::Split": []interface{}{
+						",",
+						map[string]interface{}{
+							"Fn::ImportValue": "eksctl-test-public-ng::SubnetsPublic",
+						},
+					},
+				}
+				Expect(x).To(Equal(refSubnets))
+
+				Expect(obj.Resources["NodeLaunchConfig"].Properties.AssociatePublicIpAddress).To(BeTrue())
+
+				Expect(obj.Resources["SSHIPv4"].Properties.CidrIp).To(Equal("0.0.0.0/0"))
+				Expect(obj.Resources["SSHIPv4"].Properties.FromPort).To(Equal(22))
+				Expect(obj.Resources["SSHIPv4"].Properties.ToPort).To(Equal(22))
+
+				Expect(obj.Resources["SSHIPv6"].Properties.CidrIpv6).To(Equal("::/0"))
+				Expect(obj.Resources["SSHIPv6"].Properties.FromPort).To(Equal(22))
+				Expect(obj.Resources["SSHIPv6"].Properties.ToPort).To(Equal(22))
+			})
 		})
 
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors", func() {
-			err := json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
+		Context("NodeGroup{PrivateNetworking=false AllowSSH=false}", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
 
-		It("should have correct policies", func() {
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-			Expect(obj.Resources["PolicyAutoScaling"]).ToNot(BeNil())
-			Expect(len(obj.Resources["PolicyAutoScaling"].Properties.PolicyDocument.Statement)).To(Equal(1))
-			Expect(obj.Resources["PolicyAutoScaling"].Properties.PolicyDocument.Statement[0].Effect).To(Equal("Allow"))
-			Expect(obj.Resources["PolicyAutoScaling"].Properties.PolicyDocument.Statement[0].Resource).To(Equal("*"))
-			Expect(obj.Resources["PolicyAutoScaling"].Properties.PolicyDocument.Statement[0].Action).To(Equal([]string{
-				"autoscaling:DescribeAutoScalingGroups",
-				"autoscaling:DescribeAutoScalingInstances",
-				"autoscaling:DescribeLaunchConfigurations",
-				"autoscaling:DescribeTags",
-				"autoscaling:SetDesiredCapacity",
-				"autoscaling:TerminateInstanceInAutoScalingGroup",
-			}))
-		})
-
-		It("should have auto-discovery tags", func() {
-			expectedTags := []Tag{
-				{
-					Key:               "Name",
-					Value:             fmt.Sprintf("%s-%s-Node", clusterName, "ng-abcd1234"),
-					PropagateAtLaunch: "true",
+			cfg.VPC = &api.ClusterVPC{
+				Network: api.Network{
+					ID: vpcID,
 				},
-				{
-					Key:               "kubernetes.io/cluster/" + clusterName,
-					Value:             "owned",
-					PropagateAtLaunch: "true",
-				},
-				{
-					Key:               "k8s.io/cluster-autoscaler/enabled",
-					Value:             "true",
-					PropagateAtLaunch: "true",
-				},
-				{
-					Key:               "k8s.io/cluster-autoscaler/" + clusterName,
-					Value:             "owned",
-					PropagateAtLaunch: "true",
-				},
-			}
-
-			Expect(obj.Resources).To(HaveKey("NodeGroup"))
-			ng := obj.Resources["NodeGroup"]
-			Expect(ng).ToNot(BeNil())
-			Expect(ng.Properties).ToNot(BeNil())
-			Expect(ng.Properties.Tags).ToNot(BeNil())
-			Expect(ng.Properties.Tags).To(Equal(expectedTags))
-		})
-	})
-
-	Describe("NodeGroup{PrivateNetworking=true AllowSSH=true}", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		ng.AllowSSH = true
-		ng.InstanceType = "t2.medium"
-		ng.PrivateNetworking = true
-		ng.AMIFamily = "AmazonLinux2"
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-private-ng", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors", func() {
-			err := json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have correct description", func() {
-			Expect(obj.Description).To(ContainSubstring("AMI family: AmazonLinux2"))
-			Expect(obj.Description).To(ContainSubstring("SSH access: true"))
-			Expect(obj.Description).To(ContainSubstring("private networking: true"))
-		})
-
-		It("should have correct resources and attributes", func() {
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-
-			Expect(obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier).To(Not(BeNil()))
-			x, ok := obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier.(map[string]interface{})
-			Expect(ok).To(BeTrue())
-			Expect(len(x)).To(Equal(1))
-			refSubnets := map[string]interface{}{
-				"Fn::Split": []interface{}{
-					",",
-					map[string]interface{}{
-						"Fn::ImportValue": "eksctl-test-private-ng::SubnetsPrivate",
+				SecurityGroup: "sg-0b44c48bcba5b7362",
+				Subnets: &api.ClusterSubnets{
+					Public: map[string]api.Network{
+						"us-west-2b": {
+							ID: "subnet-0f98135715dfcf55f",
+						},
+						"us-west-2a": {
+							ID: "subnet-0ade11bad78dced9e",
+						},
+						"us-west-2c": {
+							ID: "subnet-0e2e63ff1712bf6ef",
+						},
+					},
+					Private: map[string]api.Network{
+						"us-west-2b": {
+							ID: "subnet-0f98135715dfcf55a",
+						},
+						"us-west-2a": {
+							ID: "subnet-0ade11bad78dced9f",
+						},
+						"us-west-2c": {
+							ID: "subnet-0e2e63ff1712bf6ea",
+						},
 					},
 				},
 			}
-			Expect(x).To(Equal(refSubnets))
 
-			Expect(obj.Resources["NodeLaunchConfig"].Properties.AssociatePublicIpAddress).To(BeFalse())
+			ng.AvailabilityZones = []string{testAZs[1]}
+			ng.AllowSSH = false
+			ng.InstanceType = "t2.medium"
+			ng.PrivateNetworking = false
+			ng.AMIFamily = "AmazonLinux2"
 
-			Expect(obj.Resources["SSHIPv4"].Properties.CidrIp).To(Equal("192.168.0.0/16"))
-			Expect(obj.Resources["SSHIPv4"].Properties.FromPort).To(Equal(22))
-			Expect(obj.Resources["SSHIPv4"].Properties.ToPort).To(Equal(22))
+			It("should have 1 AZ for the nodegroup", func() {
+				Expect(ng.AvailabilityZones).To(Equal([]string{"us-west-2a"}))
+			})
 
-			Expect(obj.Resources).To(Not(HaveKey("SSHIPv6")))
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-public-ng", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have correct description", func() {
+				Expect(obj.Description).To(ContainSubstring("AMI family: AmazonLinux2"))
+				Expect(obj.Description).To(ContainSubstring("SSH access: false"))
+				Expect(obj.Description).To(ContainSubstring("private networking: false"))
+			})
+
+			It("should have correct resources and attributes", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				Expect(obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier).To(Not(BeNil()))
+				x, ok := obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier.([]interface{})
+				Expect(ok).To(BeTrue())
+				refSubnets := []interface{}{
+					cfg.VPC.Subnets.Public["us-west-2a"].ID,
+				}
+				Expect(x).To((Equal(refSubnets)))
+
+				Expect(obj.Resources["NodeLaunchConfig"].Properties.AssociatePublicIpAddress).To(BeTrue())
+
+				Expect(obj.Resources).To(Not(HaveKey("SSHIPv4")))
+
+				Expect(obj.Resources).To(Not(HaveKey("SSHIPv6")))
+
+			})
 		})
-	})
 
-	Describe("NodeGroup{PrivateNetworking=false AllowSSH=true}", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		ng.AllowSSH = true
-		ng.InstanceType = "t2.medium"
-		ng.PrivateNetworking = false
-		ng.AMIFamily = "AmazonLinux2"
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-public-ng", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		obj := Template{}
-		It("should parse JSON without errors", func() {
-			err := json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have correct description", func() {
-			Expect(obj.Description).To(ContainSubstring("AMI family: AmazonLinux2"))
-			Expect(obj.Description).To(ContainSubstring("SSH access: true"))
-			Expect(obj.Description).To(ContainSubstring("private networking: false"))
-		})
-
-		It("should have correct resources and attributes", func() {
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-
-			Expect(obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier).To(Not(BeNil()))
-			x, ok := obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier.(map[string]interface{})
-			Expect(ok).To(BeTrue())
-			Expect(len(x)).To(Equal(1))
-			refSubnets := map[string]interface{}{
-				"Fn::Split": []interface{}{
-					",",
-					map[string]interface{}{
-						"Fn::ImportValue": "eksctl-test-public-ng::SubnetsPublic",
-					},
-				},
-			}
-			Expect(x).To(Equal(refSubnets))
-
-			Expect(obj.Resources["NodeLaunchConfig"].Properties.AssociatePublicIpAddress).To(BeTrue())
-
-			Expect(obj.Resources["SSHIPv4"].Properties.CidrIp).To(Equal("0.0.0.0/0"))
-			Expect(obj.Resources["SSHIPv4"].Properties.FromPort).To(Equal(22))
-			Expect(obj.Resources["SSHIPv4"].Properties.ToPort).To(Equal(22))
-
-			Expect(obj.Resources["SSHIPv6"].Properties.CidrIpv6).To(Equal("::/0"))
-			Expect(obj.Resources["SSHIPv6"].Properties.FromPort).To(Equal(22))
-			Expect(obj.Resources["SSHIPv6"].Properties.ToPort).To(Equal(22))
-		})
-	})
-
-	Describe("NodeGroup{PrivateNetworking=false AllowSSH=false}", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		cfg.VPC = &api.ClusterVPC{
-			Network: api.Network{
-				ID: vpcID,
-			},
-			SecurityGroup: "sg-0b44c48bcba5b7362",
-			Subnets: &api.ClusterSubnets{
-				Public: map[string]api.Network{
-					"us-west-2b": {
-						ID: "subnet-0f98135715dfcf55f",
-					},
-					"us-west-2a": {
-						ID: "subnet-0ade11bad78dced9e",
-					},
-					"us-west-2c": {
-						ID: "subnet-0e2e63ff1712bf6ef",
-					},
-				},
-				Private: map[string]api.Network{
-					"us-west-2b": {
-						ID: "subnet-0f98135715dfcf55a",
-					},
-					"us-west-2a": {
-						ID: "subnet-0ade11bad78dced9f",
-					},
-					"us-west-2c": {
-						ID: "subnet-0e2e63ff1712bf6ea",
-					},
-				},
-			},
+		checkAsset := func(name, expectedContent string) {
+			assetContent, err := nodebootstrap.Asset(name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(assetContent)).ToNot(BeEmpty())
+			Expect(expectedContent).To(Equal(string(assetContent)))
 		}
 
-		ng.AvailabilityZones = []string{testAZs[1]}
-		ng.AllowSSH = false
-		ng.InstanceType = "t2.medium"
-		ng.PrivateNetworking = false
-		ng.AMIFamily = "AmazonLinux2"
-
-		It("should have 1 AZ for the nodegroup", func() {
-			Expect(ng.AvailabilityZones).To(Equal([]string{"us-west-2a"}))
-		})
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-public-ng", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors", func() {
-			err := json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have correct description", func() {
-			Expect(obj.Description).To(ContainSubstring("AMI family: AmazonLinux2"))
-			Expect(obj.Description).To(ContainSubstring("SSH access: false"))
-			Expect(obj.Description).To(ContainSubstring("private networking: false"))
-		})
-
-		It("should have correct resources and attributes", func() {
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-
-			Expect(obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier).To(Not(BeNil()))
-			x, ok := obj.Resources["NodeGroup"].Properties.VPCZoneIdentifier.([]interface{})
-			Expect(ok).To(BeTrue())
-			refSubnets := []interface{}{
-				cfg.VPC.Subnets.Public["us-west-2a"].ID,
+		getFile := func(c *cloudconfig.CloudConfig, p string) *cloudconfig.File {
+			for _, f := range c.WriteFiles {
+				if f.Path == p {
+					return &f
+				}
 			}
-			Expect(x).To((Equal(refSubnets)))
+			return nil
+		}
 
-			Expect(obj.Resources["NodeLaunchConfig"].Properties.AssociatePublicIpAddress).To(BeTrue())
-
-			Expect(obj.Resources).To(Not(HaveKey("SSHIPv4")))
-
-			Expect(obj.Resources).To(Not(HaveKey("SSHIPv6")))
-
-		})
-	})
-
-	checkAsset := func(name, expectedContent string) {
-		assetContent, err := nodebootstrap.Asset(name)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(string(assetContent)).ToNot(BeEmpty())
-		Expect(expectedContent).To(Equal(string(assetContent)))
-	}
-
-	getFile := func(c *cloudconfig.CloudConfig, p string) *cloudconfig.File {
-		for _, f := range c.WriteFiles {
-			if f.Path == p {
-				return &f
+		checkScript := func(c *cloudconfig.CloudConfig, p string, assetContent bool) {
+			script := getFile(c, p)
+			Expect(script).ToNot(BeNil())
+			Expect(script.Permissions).To(Equal("0755"))
+			scriptRuns := false
+			for _, s := range c.Commands {
+				if s.([]interface{})[0] == script.Path {
+					scriptRuns = true
+				}
+			}
+			Expect(scriptRuns).To(BeTrue())
+			if assetContent {
+				checkAsset(filepath.Base(p), script.Content)
 			}
 		}
-		return nil
-	}
 
-	checkScript := func(c *cloudconfig.CloudConfig, p string, assetContent bool) {
-		script := getFile(c, p)
-		Expect(script).ToNot(BeNil())
-		Expect(script.Permissions).To(Equal("0755"))
-		scriptRuns := false
-		for _, s := range c.Commands {
-			if s.([]interface{})[0] == script.Path {
-				scriptRuns = true
-			}
-		}
-		Expect(scriptRuns).To(BeTrue())
-		if assetContent {
-			checkAsset(filepath.Base(p), script.Content)
-		}
-	}
+		Context("UserData - AmazonLinux2", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
 
-	Describe("UserData - AmazonLinux2", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
+			ng.InstanceType = "m5.large"
 
-		var c *cloudconfig.CloudConfig
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
 
-		cfg.NodeGroups[0].InstanceType = "m5.large"
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
 
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
+			It("should extract valid cloud-config using our implementation", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
+				Expect(userData).ToNot(BeEmpty())
+
+				c, err = cloudconfig.DecodeCloudConfig(userData)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have packages, scripts and commands in cloud-config", func() {
+				Expect(c).ToNot(BeNil())
+
+				Expect(c.Packages).Should(BeEmpty())
+
+				kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
+				Expect(kubeletEnv).ToNot(BeNil())
+				Expect(kubeletEnv.Permissions).To(Equal("0644"))
+				Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
+					"NODE_LABELS=",
+				}))
+
+				kubeletDropInUnit := getFile(c, "/etc/systemd/system/kubelet.service.d/10-eksclt.al2.conf")
+				Expect(kubeletDropInUnit).ToNot(BeNil())
+				Expect(kubeletDropInUnit.Permissions).To(Equal("0644"))
+				checkAsset("10-eksclt.al2.conf", kubeletDropInUnit.Content)
+
+				kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
+				Expect(kubeconfig).ToNot(BeNil())
+				Expect(kubeconfig.Permissions).To(Equal("0644"))
+				Expect(kubeconfig.Content).To(MatchYAML(kubeconfigBody("aws-iam-authenticator")))
+
+				kubeletConfigAssetContent, err := nodebootstrap.Asset("kubelet.yaml")
+				Expect(err).ToNot(HaveOccurred())
+
+				kubeletConfigAssetContentString := string(kubeletConfigAssetContent) +
+					"\n" +
+					"maxPods: 29\n" +
+					"clusterDNS: [10.100.0.10]\n"
+
+				kubeletConfig := getFile(c, "/etc/eksctl/kubelet.yaml")
+				Expect(kubeletConfig).ToNot(BeNil())
+				Expect(kubeletConfig.Permissions).To(Equal("0644"))
+
+				Expect(kubeletConfig.Content).To(MatchYAML(kubeletConfigAssetContentString))
+
+				ca := getFile(c, "/etc/eksctl/ca.crt")
+				Expect(ca).ToNot(BeNil())
+				Expect(ca.Permissions).To(Equal("0644"))
+				Expect(ca.Content).To(Equal(string(caCertData)))
+
+				checkScript(c, "/var/lib/cloud/scripts/per-instance/bootstrap.al2.sh", true)
+			})
 		})
 
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
-			err = json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(obj.Resources)).ToNot(Equal(0))
+		Context("UserData - AmazonLinux2 (custom pre-bootstrap)", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
 
-			userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
-			Expect(userData).ToNot(BeEmpty())
+			ng.InstanceType = "m5.large"
 
-			c, err = cloudconfig.DecodeCloudConfig(userData)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have packages, scripts and commands in cloud-config", func() {
-			Expect(c).ToNot(BeNil())
-
-			Expect(c.Packages).Should(BeEmpty())
-
-			kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
-			Expect(kubeletEnv).ToNot(BeNil())
-			Expect(kubeletEnv.Permissions).To(Equal("0644"))
-			Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
-				"MAX_PODS=29",
-				"CLUSTER_DNS=10.100.0.10",
-				"NODE_LABELS=",
-			}))
-
-			kubeletDropInUnit := getFile(c, "/etc/systemd/system/kubelet.service.d/10-eksclt.al2.conf")
-			Expect(kubeletDropInUnit).ToNot(BeNil())
-			Expect(kubeletDropInUnit.Permissions).To(Equal("0644"))
-			checkAsset("10-eksclt.al2.conf", kubeletDropInUnit.Content)
-
-			kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
-			Expect(kubeconfig).ToNot(BeNil())
-			Expect(kubeconfig.Permissions).To(Equal("0644"))
-			Expect(kubeconfig.Content).To(Equal(kubeconfigBody("aws-iam-authenticator")))
-
-			ca := getFile(c, "/etc/eksctl/ca.crt")
-			Expect(ca).ToNot(BeNil())
-			Expect(ca.Permissions).To(Equal("0644"))
-			Expect(ca.Content).To(Equal(string(caCertData)))
-
-			checkScript(c, "/var/lib/cloud/scripts/per-instance/bootstrap.al2.sh", true)
-		})
-	})
-
-	Describe("UserData - AmazonLinux2 (custom pre-bootstrap)", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		var c *cloudconfig.CloudConfig
-
-		cfg.NodeGroups[0].InstanceType = "m5.large"
-
-		cfg.NodeGroups[0].PreBootstrapCommands = []string{
-			"touch /tmp/test",
-			"rm /tmp/test",
-		}
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
-			err = json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-
-			userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
-			Expect(userData).ToNot(BeEmpty())
-
-			c, err = cloudconfig.DecodeCloudConfig(userData)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have packages, scripts and commands in cloud-config", func() {
-			Expect(c).ToNot(BeNil())
-
-			Expect(c.Packages).Should(BeEmpty())
-
-			kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
-			Expect(kubeletEnv).ToNot(BeNil())
-			Expect(kubeletEnv.Permissions).To(Equal("0644"))
-			Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
-				"MAX_PODS=29",
-				"CLUSTER_DNS=10.100.0.10",
-				"NODE_LABELS=",
-			}))
-
-			kubeletDropInUnit := getFile(c, "/etc/systemd/system/kubelet.service.d/10-eksclt.al2.conf")
-			Expect(kubeletDropInUnit).ToNot(BeNil())
-			Expect(kubeletDropInUnit.Permissions).To(Equal("0644"))
-			checkAsset("10-eksclt.al2.conf", kubeletDropInUnit.Content)
-
-			kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
-			Expect(kubeconfig).ToNot(BeNil())
-			Expect(kubeconfig.Permissions).To(Equal("0644"))
-			Expect(kubeconfig.Content).To(Equal(kubeconfigBody("aws-iam-authenticator")))
-
-			ca := getFile(c, "/etc/eksctl/ca.crt")
-			Expect(ca).ToNot(BeNil())
-			Expect(ca.Permissions).To(Equal("0644"))
-			Expect(ca.Content).To(Equal(string(caCertData)))
-
-			checkScript(c, "/var/lib/cloud/scripts/per-instance/bootstrap.al2.sh", true)
-
-			for i, cmd := range cfg.NodeGroups[0].PreBootstrapCommands {
-				Expect(c.Commands[i].([]interface{})[0]).To(Equal("/bin/bash"))
-				Expect(c.Commands[i].([]interface{})[1]).To(Equal("-c"))
-				Expect(c.Commands[i].([]interface{})[2]).To(Equal(cmd))
-			}
-		})
-	})
-
-	Describe("UserData - AmazonLinux2 (custom bootstrap)", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		var c *cloudconfig.CloudConfig
-
-		cfg.NodeGroups[0].InstanceType = "m5.large"
-		cfg.NodeGroups[0].Labels = map[string]string{
-			"os": "al2",
-		}
-
-		cfg.NodeGroups[0].OverrideBootstrapCommand = &overrideBootstrapCommand
-
-		cfg.NodeGroups[0].ClusterDNS = "169.254.20.10"
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
-			err = json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-
-			userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
-			Expect(userData).ToNot(BeEmpty())
-
-			c, err = cloudconfig.DecodeCloudConfig(userData)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have packages, scripts and commands in cloud-config", func() {
-			Expect(c).ToNot(BeNil())
-
-			Expect(c.Packages).Should(BeEmpty())
-
-			kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
-			Expect(kubeletEnv).ToNot(BeNil())
-			Expect(kubeletEnv.Permissions).To(Equal("0644"))
-			Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
-				"MAX_PODS=29",
-				"CLUSTER_DNS=169.254.20.10",
-				"NODE_LABELS=os=al2",
-			}))
-
-			kubeletDropInUnit := getFile(c, "/etc/systemd/system/kubelet.service.d/10-eksclt.al2.conf")
-			Expect(kubeletDropInUnit).ToNot(BeNil())
-			Expect(kubeletDropInUnit.Permissions).To(Equal("0644"))
-			checkAsset("10-eksclt.al2.conf", kubeletDropInUnit.Content)
-
-			kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
-			Expect(kubeconfig).ToNot(BeNil())
-			Expect(kubeconfig.Permissions).To(Equal("0644"))
-			Expect(kubeconfig.Content).To(Equal(kubeconfigBody("aws-iam-authenticator")))
-
-			ca := getFile(c, "/etc/eksctl/ca.crt")
-			Expect(ca).ToNot(BeNil())
-			Expect(ca.Permissions).To(Equal("0644"))
-			Expect(ca.Content).To(Equal(string(caCertData)))
-
-			script := getFile(c, "/var/lib/cloud/scripts/per-instance/bootstrap.al2.sh")
-			Expect(script).To(BeNil())
-
-			Expect(c.Commands).To(HaveLen(1))
-			Expect(c.Commands[0]).To(HaveLen(3))
-			Expect(c.Commands[0].([]interface{})[0]).To(Equal("/bin/bash"))
-			Expect(c.Commands[0].([]interface{})[1]).To(Equal("-c"))
-			Expect(c.Commands[0].([]interface{})[2]).To(Equal(overrideBootstrapCommand))
-		})
-	})
-
-	Describe("UserData - AmazonLinux2 (custom bootstrap and pre-bootstrap)", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		var c *cloudconfig.CloudConfig
-
-		cfg.NodeGroups[0].InstanceType = "m5.large"
-		cfg.NodeGroups[0].Labels = map[string]string{
-			"os": "al2",
-		}
-
-		cfg.NodeGroups[0].PreBootstrapCommands = []string{"echo 1 > /tmp/1", "echo 2 > /tmp/2", "echo 3 > /tmp/3"}
-		cfg.NodeGroups[0].OverrideBootstrapCommand = &overrideBootstrapCommand
-
-		cfg.NodeGroups[0].ClusterDNS = "169.254.20.10"
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
-			err = json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-
-			userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
-			Expect(userData).ToNot(BeEmpty())
-
-			c, err = cloudconfig.DecodeCloudConfig(userData)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have packages, scripts and commands in cloud-config", func() {
-			Expect(c).ToNot(BeNil())
-
-			Expect(c.Packages).Should(BeEmpty())
-
-			kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
-			Expect(kubeletEnv).ToNot(BeNil())
-			Expect(kubeletEnv.Permissions).To(Equal("0644"))
-			Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
-				"MAX_PODS=29",
-				"CLUSTER_DNS=169.254.20.10",
-				"NODE_LABELS=os=al2",
-			}))
-
-			kubeletDropInUnit := getFile(c, "/etc/systemd/system/kubelet.service.d/10-eksclt.al2.conf")
-			Expect(kubeletDropInUnit).ToNot(BeNil())
-			Expect(kubeletDropInUnit.Permissions).To(Equal("0644"))
-			checkAsset("10-eksclt.al2.conf", kubeletDropInUnit.Content)
-
-			kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
-			Expect(kubeconfig).ToNot(BeNil())
-			Expect(kubeconfig.Permissions).To(Equal("0644"))
-			Expect(kubeconfig.Content).To(Equal(kubeconfigBody("aws-iam-authenticator")))
-
-			ca := getFile(c, "/etc/eksctl/ca.crt")
-			Expect(ca).ToNot(BeNil())
-			Expect(ca.Permissions).To(Equal("0644"))
-			Expect(ca.Content).To(Equal(string(caCertData)))
-
-			script := getFile(c, "/var/lib/cloud/scripts/per-instance/bootstrap.al2.sh")
-			Expect(script).To(BeNil())
-
-			Expect(c.Commands).To(HaveLen(4))
-			Expect(c.Commands[0]).To(HaveLen(3))
-
-			for i, cmd := range cfg.NodeGroups[0].PreBootstrapCommands {
-				Expect(c.Commands[i].([]interface{})[0]).To(Equal("/bin/bash"))
-				Expect(c.Commands[i].([]interface{})[1]).To(Equal("-c"))
-				Expect(c.Commands[i].([]interface{})[2]).To(Equal(cmd))
+			ng.PreBootstrapCommands = []string{
+				"touch /tmp/test",
+				"rm /tmp/test",
 			}
 
-			Expect(c.Commands[3].([]interface{})[0]).To(Equal("/bin/bash"))
-			Expect(c.Commands[3].([]interface{})[1]).To(Equal("-c"))
-			Expect(c.Commands[3].([]interface{})[2]).To(Equal(overrideBootstrapCommand))
-		})
-	})
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
 
-	Describe("UserData - Ubuntu1804", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
 
-		var c *cloudconfig.CloudConfig
+			It("should extract valid cloud-config using our implementation", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
 
-		cfg.VPC.CIDR, _ = ipnet.ParseCIDR("10.1.0.0/16")
-		cfg.NodeGroups[0].AMIFamily = "Ubuntu1804"
-		cfg.NodeGroups[0].InstanceType = "m5.large"
+				userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
+				Expect(userData).ToNot(BeEmpty())
 
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
+				c, err = cloudconfig.DecodeCloudConfig(userData)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
 
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
-			err = json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(obj.Resources)).ToNot(Equal(0))
+			It("should have packages, scripts and commands in cloud-config", func() {
+				Expect(c).ToNot(BeNil())
 
-			userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
-			Expect(userData).ToNot(BeEmpty())
+				Expect(c.Packages).Should(BeEmpty())
 
-			c, err = cloudconfig.DecodeCloudConfig(userData)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
+				kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
+				Expect(kubeletEnv).ToNot(BeNil())
+				Expect(kubeletEnv.Permissions).To(Equal("0644"))
+				Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
+					"NODE_LABELS=",
+				}))
 
-		It("should have correct description", func() {
-			Expect(obj.Description).To(ContainSubstring("AMI family: Ubuntu1804"))
-			Expect(obj.Description).To(ContainSubstring("SSH access: false"))
-			Expect(obj.Description).To(ContainSubstring("private networking: false"))
-		})
+				kubeletDropInUnit := getFile(c, "/etc/systemd/system/kubelet.service.d/10-eksclt.al2.conf")
+				Expect(kubeletDropInUnit).ToNot(BeNil())
+				Expect(kubeletDropInUnit.Permissions).To(Equal("0644"))
+				checkAsset("10-eksclt.al2.conf", kubeletDropInUnit.Content)
 
-		It("should have packages, scripts and commands in cloud-config", func() {
-			Expect(c).ToNot(BeNil())
+				kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
+				Expect(kubeconfig).ToNot(BeNil())
+				Expect(kubeconfig.Permissions).To(Equal("0644"))
+				Expect(kubeconfig.Content).To(MatchYAML(kubeconfigBody("aws-iam-authenticator")))
 
-			Expect(c.Packages).Should(BeEmpty())
+				ca := getFile(c, "/etc/eksctl/ca.crt")
+				Expect(ca).ToNot(BeNil())
+				Expect(ca.Permissions).To(Equal("0644"))
+				Expect(ca.Content).To(Equal(string(caCertData)))
 
-			kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
-			Expect(kubeletEnv).ToNot(BeNil())
-			Expect(kubeletEnv.Permissions).To(Equal("0644"))
-			Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
-				"MAX_PODS=29",
-				"CLUSTER_DNS=172.20.0.10",
-				"NODE_LABELS=",
-			}))
+				checkScript(c, "/var/lib/cloud/scripts/per-instance/bootstrap.al2.sh", true)
 
-			kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
-			Expect(kubeconfig).ToNot(BeNil())
-			Expect(kubeconfig.Permissions).To(Equal("0644"))
-			Expect(kubeconfig.Content).To(Equal(kubeconfigBody("heptio-authenticator-aws")))
-
-			ca := getFile(c, "/etc/eksctl/ca.crt")
-			Expect(ca).ToNot(BeNil())
-			Expect(ca.Permissions).To(Equal("0644"))
-			Expect(ca.Content).To(Equal(string(caCertData)))
-
-			checkScript(c, "/var/lib/cloud/scripts/per-instance/bootstrap.ubuntu.sh", true)
-		})
-	})
-
-	Describe("UserData - Ubuntu1804 (custom pre-bootstrap)", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		var c *cloudconfig.CloudConfig
-
-		cfg.VPC.CIDR, _ = ipnet.ParseCIDR("10.1.0.0/16")
-		cfg.NodeGroups[0].AMIFamily = "Ubuntu1804"
-		cfg.NodeGroups[0].InstanceType = "m5.large"
-
-		cfg.NodeGroups[0].PreBootstrapCommands = []string{
-			"while true ; do echo foo > /dev/null ; done",
-		}
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
+				Expect(c.Commands).To(HaveLen(len(ng.PreBootstrapCommands) + 1))
+				for i, cmd := range ng.PreBootstrapCommands {
+					Expect(c.Commands[i].([]interface{})[0]).To(Equal("/bin/bash"))
+					Expect(c.Commands[i].([]interface{})[1]).To(Equal("-c"))
+					Expect(c.Commands[i].([]interface{})[2]).To(Equal(cmd))
+				}
+			})
 		})
 
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
-			err = json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(obj.Resources)).ToNot(Equal(0))
+		Context("UserData - AmazonLinux2 (custom bootstrap)", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
 
-			userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
-			Expect(userData).ToNot(BeEmpty())
-
-			c, err = cloudconfig.DecodeCloudConfig(userData)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have correct description", func() {
-			Expect(obj.Description).To(ContainSubstring("AMI family: Ubuntu1804"))
-			Expect(obj.Description).To(ContainSubstring("SSH access: false"))
-			Expect(obj.Description).To(ContainSubstring("private networking: false"))
-		})
-
-		It("should have packages, scripts and commands in cloud-config", func() {
-			Expect(c).ToNot(BeNil())
-
-			Expect(c.Packages).Should(BeEmpty())
-
-			kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
-			Expect(kubeletEnv).ToNot(BeNil())
-			Expect(kubeletEnv.Permissions).To(Equal("0644"))
-			Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
-				"MAX_PODS=29",
-				"CLUSTER_DNS=172.20.0.10",
-				"NODE_LABELS=",
-			}))
-
-			kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
-			Expect(kubeconfig).ToNot(BeNil())
-			Expect(kubeconfig.Permissions).To(Equal("0644"))
-			Expect(kubeconfig.Content).To(Equal(kubeconfigBody("heptio-authenticator-aws")))
-
-			ca := getFile(c, "/etc/eksctl/ca.crt")
-			Expect(ca).ToNot(BeNil())
-			Expect(ca.Permissions).To(Equal("0644"))
-			Expect(ca.Content).To(Equal(string(caCertData)))
-
-			checkScript(c, "/var/lib/cloud/scripts/per-instance/bootstrap.ubuntu.sh", true)
-
-			for i, cmd := range cfg.NodeGroups[0].PreBootstrapCommands {
-				Expect(c.Commands[i].([]interface{})[0]).To(Equal("/bin/bash"))
-				Expect(c.Commands[i].([]interface{})[1]).To(Equal("-c"))
-				Expect(c.Commands[i].([]interface{})[2]).To(Equal(cmd))
-			}
-		})
-	})
-
-	Describe("UserData - Ubuntu1804 (custom bootstrap)", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		var c *cloudconfig.CloudConfig
-
-		cfg.VPC.CIDR, _ = ipnet.ParseCIDR("10.1.0.0/16")
-		cfg.NodeGroups[0].AMIFamily = "Ubuntu1804"
-		cfg.NodeGroups[0].InstanceType = "m5.large"
-
-		cfg.NodeGroups[0].Labels = map[string]string{
-			"os": "ubuntu",
-		}
-
-		cfg.NodeGroups[0].ClusterDNS = "169.254.20.10"
-
-		cfg.NodeGroups[0].OverrideBootstrapCommand = &overrideBootstrapCommand
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
-			err = json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-
-			userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
-			Expect(userData).ToNot(BeEmpty())
-
-			c, err = cloudconfig.DecodeCloudConfig(userData)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have correct description", func() {
-			Expect(obj.Description).To(ContainSubstring("AMI family: Ubuntu1804"))
-			Expect(obj.Description).To(ContainSubstring("SSH access: false"))
-			Expect(obj.Description).To(ContainSubstring("private networking: false"))
-		})
-
-		It("should have packages, scripts and commands in cloud-config", func() {
-			Expect(c).ToNot(BeNil())
-
-			Expect(c.Packages).Should(BeEmpty())
-
-			kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
-			Expect(kubeletEnv).ToNot(BeNil())
-			Expect(kubeletEnv.Permissions).To(Equal("0644"))
-			Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
-				"MAX_PODS=29",
-				"CLUSTER_DNS=169.254.20.10",
-				"NODE_LABELS=os=ubuntu",
-			}))
-
-			kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
-			Expect(kubeconfig).ToNot(BeNil())
-			Expect(kubeconfig.Permissions).To(Equal("0644"))
-			Expect(kubeconfig.Content).To(Equal(kubeconfigBody("heptio-authenticator-aws")))
-
-			ca := getFile(c, "/etc/eksctl/ca.crt")
-			Expect(ca).ToNot(BeNil())
-			Expect(ca.Permissions).To(Equal("0644"))
-			Expect(ca.Content).To(Equal(string(caCertData)))
-
-			script := getFile(c, "/var/lib/cloud/scripts/per-instance/bootstrap.ubuntu.sh")
-			Expect(script).To(BeNil())
-
-			Expect(c.Commands).To(HaveLen(1))
-			Expect(c.Commands[0]).To(HaveLen(3))
-			Expect(c.Commands[0].([]interface{})[0]).To(Equal("/bin/bash"))
-			Expect(c.Commands[0].([]interface{})[1]).To(Equal("-c"))
-			Expect(c.Commands[0].([]interface{})[2]).To(Equal(overrideBootstrapCommand))
-		})
-	})
-
-	Describe("UserData - Ubuntu1804 (custom bootstrap and pre-bootstrap)", func() {
-		cfg, ng := newClusterConfigAndNodegroup()
-
-		var c *cloudconfig.CloudConfig
-
-		cfg.VPC.CIDR, _ = ipnet.ParseCIDR("10.1.0.0/16")
-		cfg.NodeGroups[0].AMIFamily = "Ubuntu1804"
-		cfg.NodeGroups[0].InstanceType = "m5.large"
-
-		cfg.NodeGroups[0].Labels = map[string]string{
-			"os": "ubuntu",
-		}
-
-		cfg.NodeGroups[0].ClusterDNS = "169.254.20.10"
-
-		cfg.NodeGroups[0].PreBootstrapCommands = []string{"echo 1 > /tmp/1", "echo 2 > /tmp/2", "echo 3 > /tmp/3"}
-		cfg.NodeGroups[0].OverrideBootstrapCommand = &overrideBootstrapCommand
-
-		rs := NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
-		err := rs.AddAllResources()
-		It("should add all resources without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		template, err := rs.RenderJSON()
-		It("should serialise JSON without errors", func() {
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-		obj := Template{}
-		It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
-			err = json.Unmarshal(template, &obj)
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(obj.Resources)).ToNot(Equal(0))
-
-			userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
-			Expect(userData).ToNot(BeEmpty())
-
-			c, err = cloudconfig.DecodeCloudConfig(userData)
-			Expect(err).ShouldNot(HaveOccurred())
-		})
-
-		It("should have correct description", func() {
-			Expect(obj.Description).To(ContainSubstring("AMI family: Ubuntu1804"))
-			Expect(obj.Description).To(ContainSubstring("SSH access: false"))
-			Expect(obj.Description).To(ContainSubstring("private networking: false"))
-		})
-
-		It("should have packages, scripts and commands in cloud-config", func() {
-			Expect(c).ToNot(BeNil())
-
-			Expect(c.Packages).Should(BeEmpty())
-
-			kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
-			Expect(kubeletEnv).ToNot(BeNil())
-			Expect(kubeletEnv.Permissions).To(Equal("0644"))
-			Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
-				"MAX_PODS=29",
-				"CLUSTER_DNS=169.254.20.10",
-				"NODE_LABELS=os=ubuntu",
-			}))
-
-			kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
-			Expect(kubeconfig).ToNot(BeNil())
-			Expect(kubeconfig.Permissions).To(Equal("0644"))
-			Expect(kubeconfig.Content).To(Equal(kubeconfigBody("heptio-authenticator-aws")))
-
-			ca := getFile(c, "/etc/eksctl/ca.crt")
-			Expect(ca).ToNot(BeNil())
-			Expect(ca.Permissions).To(Equal("0644"))
-			Expect(ca.Content).To(Equal(string(caCertData)))
-
-			script := getFile(c, "/var/lib/cloud/scripts/per-instance/bootstrap.ubuntu.sh")
-			Expect(script).To(BeNil())
-
-			Expect(c.Commands).To(HaveLen(4))
-			Expect(c.Commands[0]).To(HaveLen(3))
-
-			for i, cmd := range cfg.NodeGroups[0].PreBootstrapCommands {
-				Expect(c.Commands[i].([]interface{})[0]).To(Equal("/bin/bash"))
-				Expect(c.Commands[i].([]interface{})[1]).To(Equal("-c"))
-				Expect(c.Commands[i].([]interface{})[2]).To(Equal(cmd))
+			ng.InstanceType = "m5.large"
+			ng.Labels = map[string]string{
+				"os": "al2",
 			}
 
-			Expect(c.Commands[3].([]interface{})[0]).To(Equal("/bin/bash"))
-			Expect(c.Commands[3].([]interface{})[1]).To(Equal("-c"))
-			Expect(c.Commands[3].([]interface{})[2]).To(Equal(overrideBootstrapCommand))
+			ng.OverrideBootstrapCommand = &overrideBootstrapCommand
+
+			ng.ClusterDNS = "169.254.20.10"
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should extract valid cloud-config using our implementation", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
+				Expect(userData).ToNot(BeEmpty())
+
+				c, err = cloudconfig.DecodeCloudConfig(userData)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have packages, scripts and commands in cloud-config", func() {
+				Expect(c).ToNot(BeNil())
+
+				Expect(c.Packages).Should(BeEmpty())
+
+				kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
+				Expect(kubeletEnv).ToNot(BeNil())
+				Expect(kubeletEnv.Permissions).To(Equal("0644"))
+				Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
+					"NODE_LABELS=os=al2",
+				}))
+
+				kubeletDropInUnit := getFile(c, "/etc/systemd/system/kubelet.service.d/10-eksclt.al2.conf")
+				Expect(kubeletDropInUnit).ToNot(BeNil())
+				Expect(kubeletDropInUnit.Permissions).To(Equal("0644"))
+				checkAsset("10-eksclt.al2.conf", kubeletDropInUnit.Content)
+
+				kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
+				Expect(kubeconfig).ToNot(BeNil())
+				Expect(kubeconfig.Permissions).To(Equal("0644"))
+				Expect(kubeconfig.Content).To(MatchYAML(kubeconfigBody("aws-iam-authenticator")))
+
+				ca := getFile(c, "/etc/eksctl/ca.crt")
+				Expect(ca).ToNot(BeNil())
+				Expect(ca.Permissions).To(Equal("0644"))
+				Expect(ca.Content).To(Equal(string(caCertData)))
+
+				script := getFile(c, "/var/lib/cloud/scripts/per-instance/bootstrap.al2.sh")
+				Expect(script).To(BeNil())
+
+				Expect(c.Commands).To(HaveLen(1))
+				Expect(c.Commands[0]).To(HaveLen(3))
+				Expect(c.Commands[0].([]interface{})[0]).To(Equal("/bin/bash"))
+				Expect(c.Commands[0].([]interface{})[1]).To(Equal("-c"))
+				Expect(c.Commands[0].([]interface{})[2]).To(Equal(overrideBootstrapCommand))
+			})
 		})
+
+		Context("UserData - AmazonLinux2 (custom bootstrap and pre-bootstrap)", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
+
+			ng.InstanceType = "m5.large"
+			ng.Labels = map[string]string{
+				"os": "al2",
+			}
+
+			ng.PreBootstrapCommands = []string{"echo 1 > /tmp/1", "echo 2 > /tmp/2", "echo 3 > /tmp/3"}
+			ng.OverrideBootstrapCommand = &overrideBootstrapCommand
+
+			ng.ClusterDNS = "169.254.20.10"
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should parse JSON without errors and extract valid cloud-config using our implementation", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
+				Expect(userData).ToNot(BeEmpty())
+
+				c, err = cloudconfig.DecodeCloudConfig(userData)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have packages, scripts and commands in cloud-config", func() {
+				Expect(c).ToNot(BeNil())
+
+				Expect(c.Packages).Should(BeEmpty())
+
+				kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
+				Expect(kubeletEnv).ToNot(BeNil())
+				Expect(kubeletEnv.Permissions).To(Equal("0644"))
+				Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
+					"NODE_LABELS=os=al2",
+				}))
+
+				kubeletDropInUnit := getFile(c, "/etc/systemd/system/kubelet.service.d/10-eksclt.al2.conf")
+				Expect(kubeletDropInUnit).ToNot(BeNil())
+				Expect(kubeletDropInUnit.Permissions).To(Equal("0644"))
+				checkAsset("10-eksclt.al2.conf", kubeletDropInUnit.Content)
+
+				kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
+				Expect(kubeconfig).ToNot(BeNil())
+				Expect(kubeconfig.Permissions).To(Equal("0644"))
+				Expect(kubeconfig.Content).To(MatchYAML(kubeconfigBody("aws-iam-authenticator")))
+
+				ca := getFile(c, "/etc/eksctl/ca.crt")
+				Expect(ca).ToNot(BeNil())
+				Expect(ca.Permissions).To(Equal("0644"))
+				Expect(ca.Content).To(Equal(string(caCertData)))
+
+				script := getFile(c, "/var/lib/cloud/scripts/per-instance/bootstrap.al2.sh")
+				Expect(script).To(BeNil())
+
+				Expect(c.Commands).To(HaveLen(4))
+				Expect(c.Commands[0]).To(HaveLen(3))
+
+				for i, cmd := range ng.PreBootstrapCommands {
+					Expect(c.Commands[i].([]interface{})[0]).To(Equal("/bin/bash"))
+					Expect(c.Commands[i].([]interface{})[1]).To(Equal("-c"))
+					Expect(c.Commands[i].([]interface{})[2]).To(Equal(cmd))
+				}
+
+				Expect(c.Commands[3].([]interface{})[0]).To(Equal("/bin/bash"))
+				Expect(c.Commands[3].([]interface{})[1]).To(Equal("-c"))
+				Expect(c.Commands[3].([]interface{})[2]).To(Equal(overrideBootstrapCommand))
+			})
+		})
+
+		Context("UserData - Ubuntu1804", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
+
+			cfg.VPC.CIDR, _ = ipnet.ParseCIDR("10.1.0.0/16")
+			ng.AMIFamily = "Ubuntu1804"
+			ng.InstanceType = "m5.large"
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should extract valid cloud-config using our implementation", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
+				Expect(userData).ToNot(BeEmpty())
+
+				c, err = cloudconfig.DecodeCloudConfig(userData)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have correct description", func() {
+				Expect(obj.Description).To(ContainSubstring("AMI family: Ubuntu1804"))
+				Expect(obj.Description).To(ContainSubstring("SSH access: false"))
+				Expect(obj.Description).To(ContainSubstring("private networking: false"))
+			})
+
+			It("should have packages, scripts and commands in cloud-config", func() {
+				Expect(c).ToNot(BeNil())
+
+				Expect(c.Packages).Should(BeEmpty())
+
+				kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
+				Expect(kubeletEnv).ToNot(BeNil())
+				Expect(kubeletEnv.Permissions).To(Equal("0644"))
+				Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
+					"NODE_LABELS=",
+					"MAX_PODS=29",
+					"CLUSTER_DNS=172.20.0.10",
+				}))
+
+				kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
+				Expect(kubeconfig).ToNot(BeNil())
+				Expect(kubeconfig.Permissions).To(Equal("0644"))
+				Expect(kubeconfig.Content).To(MatchYAML(kubeconfigBody("heptio-authenticator-aws")))
+
+				ca := getFile(c, "/etc/eksctl/ca.crt")
+				Expect(ca).ToNot(BeNil())
+				Expect(ca.Permissions).To(Equal("0644"))
+				Expect(ca.Content).To(Equal(string(caCertData)))
+
+				checkScript(c, "/var/lib/cloud/scripts/per-instance/bootstrap.ubuntu.sh", true)
+			})
+		})
+
+		Context("UserData - Ubuntu1804 (custom pre-bootstrap)", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
+
+			cfg.VPC.CIDR, _ = ipnet.ParseCIDR("10.1.0.0/16")
+			ng.AMIFamily = "Ubuntu1804"
+			ng.InstanceType = "m5.large"
+
+			ng.PreBootstrapCommands = []string{
+				"while true ; do echo foo > /dev/null ; done",
+			}
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should extract valid cloud-config using our implementation", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
+				Expect(userData).ToNot(BeEmpty())
+
+				c, err = cloudconfig.DecodeCloudConfig(userData)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have correct description", func() {
+				Expect(obj.Description).To(ContainSubstring("AMI family: Ubuntu1804"))
+				Expect(obj.Description).To(ContainSubstring("SSH access: false"))
+				Expect(obj.Description).To(ContainSubstring("private networking: false"))
+			})
+
+			It("should have packages, scripts and commands in cloud-config", func() {
+				Expect(c).ToNot(BeNil())
+
+				Expect(c.Packages).Should(BeEmpty())
+
+				kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
+				Expect(kubeletEnv).ToNot(BeNil())
+				Expect(kubeletEnv.Permissions).To(Equal("0644"))
+				Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
+					"NODE_LABELS=",
+					"MAX_PODS=29",
+					"CLUSTER_DNS=172.20.0.10",
+				}))
+
+				kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
+				Expect(kubeconfig).ToNot(BeNil())
+				Expect(kubeconfig.Permissions).To(Equal("0644"))
+				Expect(kubeconfig.Content).To(MatchYAML(kubeconfigBody("heptio-authenticator-aws")))
+
+				ca := getFile(c, "/etc/eksctl/ca.crt")
+				Expect(ca).ToNot(BeNil())
+				Expect(ca.Permissions).To(Equal("0644"))
+				Expect(ca.Content).To(Equal(string(caCertData)))
+
+				checkScript(c, "/var/lib/cloud/scripts/per-instance/bootstrap.ubuntu.sh", true)
+
+				for i, cmd := range ng.PreBootstrapCommands {
+					Expect(c.Commands[i].([]interface{})[0]).To(Equal("/bin/bash"))
+					Expect(c.Commands[i].([]interface{})[1]).To(Equal("-c"))
+					Expect(c.Commands[i].([]interface{})[2]).To(Equal(cmd))
+				}
+			})
+		})
+
+		Context("UserData - Ubuntu1804 (custom bootstrap)", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
+
+			cfg.VPC.CIDR, _ = ipnet.ParseCIDR("10.1.0.0/16")
+			ng.AMIFamily = "Ubuntu1804"
+			ng.InstanceType = "m5.large"
+
+			ng.Labels = map[string]string{
+				"os": "ubuntu",
+			}
+
+			ng.ClusterDNS = "169.254.20.10"
+
+			ng.OverrideBootstrapCommand = &overrideBootstrapCommand
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should extract valid cloud-config using our implementation", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
+				Expect(userData).ToNot(BeEmpty())
+
+				c, err = cloudconfig.DecodeCloudConfig(userData)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have correct description", func() {
+				Expect(obj.Description).To(ContainSubstring("AMI family: Ubuntu1804"))
+				Expect(obj.Description).To(ContainSubstring("SSH access: false"))
+				Expect(obj.Description).To(ContainSubstring("private networking: false"))
+			})
+
+			It("should have packages, scripts and commands in cloud-config", func() {
+				Expect(c).ToNot(BeNil())
+
+				Expect(c.Packages).Should(BeEmpty())
+
+				kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
+				Expect(kubeletEnv).ToNot(BeNil())
+				Expect(kubeletEnv.Permissions).To(Equal("0644"))
+				Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
+					"NODE_LABELS=os=ubuntu",
+					"MAX_PODS=29",
+					"CLUSTER_DNS=169.254.20.10",
+				}))
+
+				kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
+				Expect(kubeconfig).ToNot(BeNil())
+				Expect(kubeconfig.Permissions).To(Equal("0644"))
+				Expect(kubeconfig.Content).To(MatchYAML(kubeconfigBody("heptio-authenticator-aws")))
+
+				ca := getFile(c, "/etc/eksctl/ca.crt")
+				Expect(ca).ToNot(BeNil())
+				Expect(ca.Permissions).To(Equal("0644"))
+				Expect(ca.Content).To(Equal(string(caCertData)))
+
+				script := getFile(c, "/var/lib/cloud/scripts/per-instance/bootstrap.ubuntu.sh")
+				Expect(script).To(BeNil())
+
+				Expect(c.Commands).To(HaveLen(1))
+				Expect(c.Commands[0]).To(HaveLen(3))
+				Expect(c.Commands[0].([]interface{})[0]).To(Equal("/bin/bash"))
+				Expect(c.Commands[0].([]interface{})[1]).To(Equal("-c"))
+				Expect(c.Commands[0].([]interface{})[2]).To(Equal(overrideBootstrapCommand))
+			})
+		})
+
+		Context("UserData - Ubuntu1804 (custom bootstrap and pre-bootstrap)", func() {
+			cfg, ng := newClusterConfigAndNodegroup()
+
+			cfg.VPC.CIDR, _ = ipnet.ParseCIDR("10.1.0.0/16")
+			ng.AMIFamily = "Ubuntu1804"
+			ng.InstanceType = "m5.large"
+
+			ng.Labels = map[string]string{
+				"os": "ubuntu",
+			}
+
+			ng.ClusterDNS = "169.254.20.10"
+
+			ng.PreBootstrapCommands = []string{"echo 1 > /tmp/1", "echo 2 > /tmp/2", "echo 3 > /tmp/3"}
+			ng.OverrideBootstrapCommand = &overrideBootstrapCommand
+
+			It("should add all resources without errors", func() {
+				rs = NewNodeGroupResourceSet(p, cfg, "eksctl-test-123-cluster", ng)
+				err = rs.AddAllResources()
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should serialise JSON without errors, and parse the teamplate", func() {
+				obj = &Template{}
+				templateBody, err := rs.RenderJSON()
+				Expect(err).ShouldNot(HaveOccurred())
+				err = json.Unmarshal(templateBody, obj)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should extract valid cloud-config using our implementation", func() {
+				Expect(obj.Resources).ToNot(BeEmpty())
+
+				userData := obj.Resources["NodeLaunchConfig"].Properties.UserData
+				Expect(userData).ToNot(BeEmpty())
+
+				c, err = cloudconfig.DecodeCloudConfig(userData)
+				Expect(err).ShouldNot(HaveOccurred())
+			})
+
+			It("should have correct description", func() {
+				Expect(obj.Description).To(ContainSubstring("AMI family: Ubuntu1804"))
+				Expect(obj.Description).To(ContainSubstring("SSH access: false"))
+				Expect(obj.Description).To(ContainSubstring("private networking: false"))
+			})
+
+			It("should have packages, scripts and commands in cloud-config", func() {
+				Expect(c).ToNot(BeNil())
+
+				Expect(c.Packages).Should(BeEmpty())
+
+				kubeletEnv := getFile(c, "/etc/eksctl/kubelet.env")
+				Expect(kubeletEnv).ToNot(BeNil())
+				Expect(kubeletEnv.Permissions).To(Equal("0644"))
+				Expect(strings.Split(kubeletEnv.Content, "\n")).To(Equal([]string{
+					"NODE_LABELS=os=ubuntu",
+					"MAX_PODS=29",
+					"CLUSTER_DNS=169.254.20.10",
+				}))
+
+				kubeconfig := getFile(c, "/etc/eksctl/kubeconfig.yaml")
+				Expect(kubeconfig).ToNot(BeNil())
+				Expect(kubeconfig.Permissions).To(Equal("0644"))
+				Expect(kubeconfig.Content).To(MatchYAML(kubeconfigBody("heptio-authenticator-aws")))
+
+				ca := getFile(c, "/etc/eksctl/ca.crt")
+				Expect(ca).ToNot(BeNil())
+				Expect(ca.Permissions).To(Equal("0644"))
+				Expect(ca.Content).To(Equal(string(caCertData)))
+
+				script := getFile(c, "/var/lib/cloud/scripts/per-instance/bootstrap.ubuntu.sh")
+				Expect(script).To(BeNil())
+
+				Expect(c.Commands).To(HaveLen(4))
+				Expect(c.Commands[0]).To(HaveLen(3))
+
+				for i, cmd := range ng.PreBootstrapCommands {
+					Expect(c.Commands[i].([]interface{})[0]).To(Equal("/bin/bash"))
+					Expect(c.Commands[i].([]interface{})[1]).To(Equal("-c"))
+					Expect(c.Commands[i].([]interface{})[2]).To(Equal(cmd))
+				}
+
+				Expect(c.Commands[3].([]interface{})[0]).To(Equal("/bin/bash"))
+				Expect(c.Commands[3].([]interface{})[1]).To(Equal("-c"))
+				Expect(c.Commands[3].([]interface{})[2]).To(Equal(overrideBootstrapCommand))
+			})
+		})
+
 	})
 })
